@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice to Text Converter with Single LLM Response Box</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Marked.js CDN for Markdown parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
+    <style>
+        /* Custom styles for Inter font and general layout */
+        body {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f8f8f8; /* Light gray background for the entire page */
+            padding: 0.5rem; /* Reduced padding */
+        }
+        .main-wrapper {
+            display: flex;
+            flex-direction: column; /* Stack columns vertically on small screens */
+            gap: 1rem; /* Reduced space between columns */
+            max-width: 1200px; /* Max width for the entire layout */
+            width: 100%;
+            padding: 0.5rem; /* Reduced padding */
+        }
+        @media (min-width: 1024px) { /* On large screens (lg breakpoint) */
+            .main-wrapper {
+                flex-direction: row; /* Arrange columns horizontally */
+                align-items: flex-start; /* Align columns to the top */
+            }
+        }
+
+        .column {
+            flex: 1; /* Each column takes equal space */
+            background-color: #ffffff; /* White background for the card */
+            border-radius: 1rem; /* Rounded corners */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* Subtle shadow */
+            padding: 1.5rem; /* Slightly reduced inner padding */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 550px; /* Added min-height to reduce jumping */
+        }
+
+        textarea {
+            resize: vertical; /* Allow vertical resizing */
+            min-height: 150px; /* Minimum height for the textarea */
+        }
+        /* Style for the message box */
+        #messageBox {
+            display: none; /* Hidden by default */
+            padding: 0.75rem 1.25rem;
+            margin-bottom: 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.9rem;
+            text-align: center;
+            width: 100%;
+        }
+        .message-info {
+            background-color: #e0e0e0; /* Light gray */
+            color: #424242; /* Darker gray */
+        }
+        .message-error {
+            background-color: #ffcdd2; /* Light red, keeping a hint for error */
+            color: #b71c1c; /* Darker red */
+        }
+        .message-success {
+            background-color: #e0e0e0; /* Changed to light gray */
+            color: #424242; /* Changed to darker gray */
+        }
+        .button-group {
+            display: flex;
+            gap: 1rem; /* Space between buttons */
+            flex-wrap: wrap; /* Allow buttons to wrap on smaller screens */
+            justify-content: center;
+            margin-bottom: 1rem; /* Space below buttons */
+        }
+        .shortcut-info {
+            font-size: 0.85rem;
+            color: #6b7280; /* Gray text */
+            margin-top: 0.5rem;
+            text-align: center;
+        }
+
+        /* Styles for the generated response text box */
+        .static-textbox {
+            width: 100%;
+            background-color: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem; /* Space below the box */
+            min-height: 250px; /* Increased min-height for the single box */
+            color: #374151;
+            font-size: 0.9rem;
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05); /* Subtle inner shadow */
+            overflow-y: auto; /* Enable scrolling if content overflows */
+            /* Removed white-space: pre-wrap; and word-wrap: break-word; for Markdown rendering */
+        }
+        /* Styles for Markdown content within static-textbox and collapsible content */
+        .static-textbox p,
+        .collapsible-content p {
+            margin-bottom: 0.5em; /* Add some spacing between paragraphs */
+        }
+        .static-textbox ul, .static-textbox ol,
+        .collapsible-content ul, .collapsible-content ol {
+            margin-left: 1.5em; /* Indent lists */
+            list-style-type: disc; /* Default bullet points */
+            margin-bottom: 0.5em;
+        }
+        .static-textbox strong, .static-textbox em,
+        .collapsible-content strong, .collapsible-content em {
+            /* Basic highlighting for bold/italic */
+            color: #1a1a1a; /* Darker text for emphasis */
+        }
+        .static-textbox pre, .static-textbox code,
+        .collapsible-content pre, .collapsible-content code {
+            background-color: #e0e0e0; /* Light gray background for code blocks */
+            padding: 0.2em 0.4em;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 0.85em;
+        }
+        .static-textbox pre {
+            display: block;
+            padding: 1em;
+            overflow-x: auto;
+        }
+
+
+        /* Styles for collapsible section */
+        .previous-responses-section {
+            width: 100%;
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #e5e7eb; /* Light gray border */
+        }
+        .previous-responses-section h2 {
+            font-size: 1rem; /* Smaller font size */
+            font-weight: normal; /* Removed bold */
+            color: #374151;
+            margin-bottom: 1rem;
+            text-align: left; /* Left indent */
+            width: 100%; /* Ensure it takes full width for left indent */
+            padding-left: 0.5rem; /* Small left padding for indentation */
+        }
+        .collapsible-item {
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            margin-bottom: 0.5rem; /* Space between collapsible items */
+            overflow: hidden; /* Ensures border-radius applies correctly */
+        }
+        .collapsible-header {
+            background-color: #f0f0f0; /* Lighter gray for header */
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            font-weight: normal; /* Removed bold */
+            color: #4a4a4a;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #e5e7eb; /* Separator for header */
+            font-size: 0.9rem; /* Smaller font for header */
+        }
+        .collapsible-header:hover {
+            background-color: #e5e5e5; /* Darker on hover */
+        }
+        /* Adjusted .collapsible-content to be just a container for .static-textbox */
+        .collapsible-content {
+            padding: 0; /* Remove padding here, let .static-textbox handle it */
+            background-color: transparent; /* Transparent background */
+            border: none; /* No border here */
+            border-top: none; /* No border top here */
+        }
+        .collapsible-content.hidden {
+            display: none;
+        }
+        .collapsible-content .static-textbox {
+            /* Override margin-bottom for textboxes inside collapsible content to fit better */
+            margin-bottom: 0;
+            border-radius: 0; /* Remove border radius for inner box if needed, or adjust */
+            box-shadow: none; /* Remove inner shadow for consistency */
+            border: none; /* Remove border for inner box */
+            border-top: 1px solid #e5e7eb; /* Add a top border to separate from header */
+        }
+        .arrow {
+            transition: transform 0.2s ease-in-out;
+        }
+        .collapsible-header .arrow.rotated { /* Use a class for rotation */
+            transform: rotate(180deg); /* Rotate arrow when open */
+        }
+    </style>
+</head>
+<body>
+    <div class="main-wrapper">
+        <div class="column">
+            <!-- Removed h1 header -->
+
+            <!-- Message Box for user feedback -->
+            <div id="messageBox" class="message-info"></div>
+
+            <!-- API Key Input Section -->
+            <div class="w-full mb-6 p-4 border border-gray-200 rounded-lg bg-gray-50">
+                <label for="apiKeyInput" class="block text-gray-700 text-sm font-normal mb-2">
+                    Gemini API Key:
+                </label>
+                <input
+                    type="password"
+                    id="apiKeyInput"
+                    class="block w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-500 text-gray-700"
+                    placeholder="Enter your Gemini API key here"
+                />
+            </div>
+
+            <!-- Document Upload Section -->
+            <div class="w-full mb-6 p-4 border border-gray-200 rounded-lg bg-gray-50">
+                <label for="documentFileInput" class="block text-gray-700 text-sm font-normal mb-2">
+                    Upload Document (.txt, .md):
+                </label>
+                <input
+                    type="file"
+                    id="documentFileInput"
+                    accept=".txt,.md"
+                    class="block w-full text-sm text-gray-500
+                           file:mr-4 file:py-2 file:px-4
+                           file:rounded-full file:border-0
+                           file:text-sm font-normal
+                           file:bg-gray-100 file:text-gray-700
+                           hover:file:bg-gray-200"
+                />
+                <p id="documentStatus" class="text-xs text-gray-500 mt-2">No file uploaded.</p>
+            </div>
+
+            <textarea
+                id="transcript"
+                class="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 mb-6 text-gray-700"
+                placeholder="Your spoken text will appear here..."
+                ></textarea>
+
+            <div class="button-group">
+                <button
+                    id="toggleRecognition"
+                    class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-normal py-3 px-6 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50"
+                >
+                    Start Recognition
+                </button>
+                <button
+                    id="clearTextButton"
+                    class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-normal py-3 px-6 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-50"
+                >
+                    Clear Text
+                </button>
+                <button
+                    id="getResponseButton"
+                    class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-normal py-3 px-6 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50"
+                >
+                    Get Response
+                </button>
+            </div>
+            <p class="shortcut-info">
+                Tip: Press and hold the <span class="font-normal">Left Shift</span> key to start listening, release to stop.<br>
+                Press the <span class="font-normal">Right Shift</span> key to clear the text.
+            </p>
+        </div>
+
+        <div class="column">
+            <h2 class="text-2xl font-normal text-gray-800 mb-6 text-left w-full pl-2">Current response</h2>
+            <div id="llmResponseOutput" class="static-textbox">
+                <p id="llmResponseContent">Your generated answer will appear here.</p>
+            </div>
+
+            <div class="previous-responses-section">
+                <h2 class="text-xl font-normal text-gray-800">Previous responses</h2>
+                <div id="previousResponsesContainer">
+                    <!-- Previous responses will be dynamically added here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Ensure the DOM is fully loaded before running the script
+        window.addEventListener('DOMContentLoaded', () => {
+            // Get references to DOM elements
+            const toggleRecognitionButton = document.getElementById('toggleRecognition');
+            const clearTextButton = document.getElementById('clearTextButton');
+            const documentFileInput = document.getElementById('documentFileInput');
+            const documentStatus = document.getElementById('documentStatus');
+            const transcriptTextArea = document.getElementById('transcript');
+            const messageBox = document.getElementById('messageBox');
+            const getResponseButton = document.getElementById('getResponseButton');
+            const apiKeyInput = document.getElementById('apiKeyInput'); // New reference for API key input
+
+            // Reference for the single LLM response box
+            const llmResponseOutput = document.getElementById('llmResponseOutput');
+            const llmResponseContent = document.getElementById('llmResponseContent');
+
+            // New reference for the previous responses container
+            const previousResponsesContainer = document.getElementById('previousResponsesContainer');
+
+
+            // Log elements to confirm they are found
+            console.log('toggleRecognitionButton:', toggleRecognitionButton);
+            console.log('clearTextButton:', clearTextButton);
+            console.log('documentFileInput:', documentFileInput);
+            console.log('documentStatus:', documentStatus);
+            console.log('transcriptTextArea:', transcriptTextArea);
+            console.log('messageBox:', messageBox);
+            console.log('getResponseButton:', getResponseButton);
+            console.log('apiKeyInput:', apiKeyInput); // Log new element
+            console.log('llmResponseOutput:', llmResponseOutput);
+            console.log('llmResponseContent:', llmResponseContent);
+            console.log('previousResponsesContainer:', previousResponsesContainer);
+
+
+            // Initialize SpeechRecognition object
+            let recognition;
+            let isRecognizing = false;
+            let accumulatedFinalTranscript = ''; // Stores the text that has been finalized
+            let isShiftPressed = false; // Track if Left Shift key is currently pressed
+            let uploadedDocumentContent = ''; // Stores the content of the uploaded document
+
+            // Function to display messages in the message box
+            function showMessage(message, type = 'info') {
+                if (messageBox) {
+                    messageBox.textContent = message;
+                    messageBox.className = `message-box message-${type}`;
+                    messageBox.style.display = 'block';
+                } else {
+                    console.error("MessageBox element not found, cannot display message:", message);
+                }
+            }
+
+            // Function to hide the message box
+            function hideMessage() {
+                if (messageBox) {
+                    messageBox.style.display = 'none';
+                }
+            }
+
+            // Function to clear the LLM output box and previous responses
+            function clearLlmOutput() {
+                if (llmResponseContent) llmResponseContent.innerHTML = 'Your generated answer will appear here.'; // Changed to innerHTML
+                if (previousResponsesContainer) previousResponsesContainer.innerHTML = ''; // Clear all previous responses
+            }
+
+            // --- Document File Handling ---
+            if (documentFileInput && documentStatus) {
+                documentFileInput.addEventListener('change', (event) => {
+                    const file = event.target.files[0];
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            uploadedDocumentContent = e.target.result;
+                            documentStatus.textContent = `File "${file.name}" loaded successfully.`;
+                            showMessage('Document loaded.', 'success');
+                        };
+                        reader.onerror = () => {
+                            uploadedDocumentContent = '';
+                            documentStatus.textContent = 'Error reading file.';
+                            showMessage('Error reading document file.', 'error');
+                        };
+                        reader.readAsText(file);
+                    } else {
+                        uploadedDocumentContent = '';
+                        documentStatus.textContent = 'No file uploaded.';
+                        hideMessage();
+                    }
+                });
+            } else {
+                console.error("Document file input or status element not found. File upload disabled.");
+                if (documentFileInput) documentFileInput.disabled = true;
+                if (documentStatus) documentStatus.textContent = "File upload unavailable.";
+            }
+
+
+            // --- Function to upload text document to LLM model (for future use) ---
+            async function uploadExperiencesToLLM(experiencesText) {
+                console.log("Attempting to send experiences to LLM...");
+
+                const prompt = `The user has provided a document containing their experiences. Please acknowledge receipt and summarize the general nature of the experiences. Do not generate a STARL answer yet. This is just for processing the document.
+
+User's Documented Experiences:
+${experiencesText}
+
+Summary of experiences:`;
+
+                let chatHistory = [];
+                chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+
+                const payload = { contents: chatHistory };
+                const apiKey = apiKeyInput ? apiKeyInput.value : ''; // Get API key from input
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+                if (!apiKey) {
+                    showMessage('Please enter your Gemini API Key.', 'error');
+                    console.error('API Key is missing for uploadExperiencesToLLM.');
+                    return null;
+                }
+
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(`API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
+                    }
+
+                    const result = await response.json();
+
+                    if (result.candidates && result.candidates.length > 0 &&
+                        result.candidates[0].content && result.candidates[0].content.parts &&
+                        result.candidates[0].content.parts.length > 0) {
+                        const llmResponseText = result.candidates[0].content.parts[0].text;
+                        console.log("LLM Response (Document Upload Confirmation):\n", llmResponseText);
+                        showMessage('Document processed. Check console for confirmation.', 'info');
+                        return llmResponseText;
+                    } else {
+                        console.error("LLM Response: Unexpected structure for document upload.");
+                        showMessage('Error processing document. Unexpected response.', 'error');
+                        return null;
+                    }
+                } catch (error) {
+                    console.error('Error sending document to LLM:', error);
+                    showMessage(`Error sending document: ${error.message}.`, 'error');
+                    return null;
+                }
+            }
+
+            // --- Function to get STARL response from LLM and populate text box ---
+            async function getSTARLResponseFromLLM(interviewQuestion, userExperiencesDocument) {
+                console.log("Attempting to get STARL response from LLM...");
+                console.log("Interview Question:", interviewQuestion);
+                console.log("User Experiences Document (first 200 chars):", userExperiencesDocument.substring(0, 200) + "...");
+
+                // If there's a current response in the main output, move it to previous responses
+                if (llmResponseContent && llmResponseContent.textContent.trim() !== '' && llmResponseContent.textContent !== 'Your generated answer will appear here.') {
+                    const previousResponseText = llmResponseContent.textContent; // Get plain text content for storage
+                    const questionForPreviousResponse = transcriptTextArea ? transcriptTextArea.value : 'N/A'; // Use the question as the header
+
+                    const collapsibleItem = document.createElement('div');
+                    collapsibleItem.className = 'collapsible-item';
+
+                    const header = document.createElement('div');
+                    header.className = 'collapsible-header';
+                    header.innerHTML = `<span>${questionForPreviousResponse.substring(0, 70)}${questionForPreviousResponse.length > 70 ? '...' : ''}</span> <span class="arrow">&#9660;</span>`; // Down arrow, truncate long questions
+
+                    const contentWrapper = document.createElement('div'); // This will be the .collapsible-content
+                    contentWrapper.className = 'collapsible-content hidden'; // Hidden by default
+
+                    const contentBox = document.createElement('div'); // This will be the .static-textbox
+                    contentBox.className = 'static-textbox'; // Apply the static-textbox class
+                    contentBox.style.minHeight = 'auto'; // Allow it to shrink to content
+                    contentBox.style.marginBottom = '0'; // Remove extra margin
+                    contentBox.style.border = 'none'; // Remove border
+                    contentBox.style.boxShadow = 'none'; // Remove shadow
+                    contentBox.style.backgroundColor = 'transparent'; // Transparent background
+
+                    // Use innerHTML to render Markdown for previous responses as well
+                    if (previousResponseText) {
+                        contentBox.innerHTML = marked.parse(previousResponseText);
+                    } else {
+                        contentBox.innerHTML = '<p>No content for this response.</p>';
+                    }
+
+                    contentWrapper.appendChild(contentBox);
+                    collapsibleItem.appendChild(header);
+                    collapsibleItem.appendChild(contentWrapper);
+
+
+                    if (previousResponsesContainer) {
+                        previousResponsesContainer.prepend(collapsibleItem); // Add to the top
+                    }
+                }
+
+                // Clear current LLM output placeholder
+                if (llmResponseContent) {
+                    llmResponseContent.innerHTML = 'Generating response...'; // Changed to innerHTML
+                }
+
+                if (!interviewQuestion || interviewQuestion.trim().length === 0) {
+                    console.error("No interview question provided.");
+                    showMessage("Please speak an interview question first.", "error");
+                    if (llmResponseContent) llmResponseContent.innerHTML = 'Your generated answer will appear here.'; // Reset placeholder
+                    return;
+                }
+                if (!userExperiencesDocument || userExperiencesDocument.trim().length === 0) {
+                    console.error("No user experiences document provided.");
+                    showMessage("Please upload a document with your experiences first.", "error");
+                    if (llmResponseContent) llmResponseContent.innerHTML = 'Your generated answer will appear here.'; // Reset placeholder
+                    return;
+                }
+
+                const apiKey = apiKeyInput ? apiKeyInput.value : ''; // Get API key from input
+                if (!apiKey) {
+                    showMessage('Please enter your Gemini API Key.', 'error');
+                    if (llmResponseContent) llmResponseContent.innerHTML = 'Error: Gemini API Key is missing.';
+                    console.error('API Key is missing for getSTARLResponseFromLLM.');
+                    return null;
+                }
+
+                const prompt = `You are an AI assistant specialized in helping candidates prepare for behavioral interviews. Your task is to provide a comprehensive answer to a given interview question in the STARL (Situation, Task, Action, Result, Learning) format.
+Please ensure each section is clearly labeled with its full name (e.g., "Situation:", "Task:", "Action:", "Result:", "Learning:") followed by the content. The "Learning" section should be precisely two impactful sentences. Ensure your response is in bullet points, clear, actionable, and uses professional language. Focus on leadership and impact.
+
+Interview Question: "${interviewQuestion}"
+
+User's Documented Experiences:
+${userExperiencesDocument}
+
+Your STARL Answer (in STARL format - Situation, Task, Action, Result, Learning):`;
+
+                let chatHistory = [];
+                chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+
+                const payload = { contents: chatHistory };
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(`API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
+                    }
+
+                    const result = await response.json();
+
+                    if (result.candidates && result.candidates.length > 0 &&
+                        result.candidates[0].content && result.candidates[0].content.parts &&
+                        result.candidates[0].content.parts.length > 0) {
+                        const llmResponseText = result.candidates[0].content.parts[0].text;
+                        console.log("Generated STARL Answer:\n", llmResponseText); // Log to console
+                        showMessage('Generated answer received. Populating box.', 'success');
+
+                        // Convert Markdown to HTML and populate the single LLM response text box
+                        if (llmResponseContent) {
+                            llmResponseContent.innerHTML = marked.parse(llmResponseText);
+                        } else {
+                            console.error("Generated Response content element not found.");
+                        }
+
+                        return llmResponseText;
+                    } else {
+                        console.error("Generated Response: Unexpected structure for STARL answer.");
+                        showMessage('Error getting generated answer. Unexpected response.', 'error');
+                        if (llmResponseContent) llmResponseContent.innerHTML = 'Error: Unexpected response.';
+                        return null;
+                    }
+                } catch (error) {
+                    console.error('Error getting generated answer:', error);
+                    showMessage(`Error getting generated answer: ${error.message}.`, 'error');
+                    if (llmResponseContent) llmResponseContent.innerHTML = `Error: ${error.message}`;
+                    return null;
+                }
+            }
+
+
+            // --- Speech Recognition Logic ---
+            if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                recognition = new SpeechRecognition();
+
+                recognition.continuous = true;
+                recognition.interimResults = true;
+                recognition.lang = 'en-US';
+
+                recognition.onstart = () => {
+                    isRecognizing = true;
+                    if (toggleRecognitionButton) {
+                        toggleRecognitionButton.textContent = 'Stop Recognition';
+                        // Changed to shades of gray
+                        toggleRecognitionButton.classList.remove('bg-gray-200', 'hover:bg-gray-300');
+                        toggleRecognitionButton.classList.add('bg-gray-400', 'text-white', 'hover:bg-gray-500');
+                    }
+                    showMessage('Listening... Speak now.', 'info');
+                };
+
+                recognition.onend = () => {
+                    isRecognizing = false;
+                    if (toggleRecognitionButton) {
+                        toggleRecognitionButton.textContent = 'Start Recognition';
+                        // Changed to shades of gray
+                        toggleRecognitionButton.classList.remove('bg-gray-400', 'text-white', 'hover:bg-gray-500');
+                        toggleRecognitionButton.classList.add('bg-gray-200', 'hover:bg-gray-300');
+                    }
+                    if (!isShiftPressed) {
+                        hideMessage();
+                    }
+                };
+
+                recognition.onresult = (event) => {
+                    let interimTranscript = '';
+                    let newFinalSegment = '';
+
+                    for (let i = event.resultIndex; i < event.results.length; ++i) {
+                        const transcript = event.results[i][0].transcript;
+                        if (event.results[i].isFinal) {
+                            newFinalSegment += transcript + ' ';
+                        } else {
+                            interimTranscript += transcript;
+                        }
+                    }
+                    accumulatedFinalTranscript += newFinalSegment;
+                    if (transcriptTextArea) {
+                        if (!transcriptTextArea.dataset.userEdited) {
+                             transcriptTextArea.value = accumulatedFinalTranscript + interimTranscript;
+                        }
+                    }
+                };
+
+                recognition.onerror = (event) => {
+                    console.error('Speech recognition error:', event.error);
+                    let errorMessage = 'An error occurred during recognition.';
+                    if (event.error === 'not-allowed') {
+                        errorMessage = 'Microphone access denied. Please allow microphone access in your browser settings.';
+                    } else if (event.error === 'no-speech') {
+                        errorMessage = 'No speech detected. Please try again.';
+                        recognition.stop();
+                    } else if (event.error === 'audio-capture') {
+                        errorMessage = 'No microphone found or audio capture failed. Please ensure your microphone is connected and allowed in your browser settings.';
+                        recognition.stop();
+                    } else if (event.error === 'network') {
+                        errorMessage = 'Network error. Please check your internet connection.';
+                        recognition.stop();
+                    }
+                    showMessage(errorMessage, 'error');
+                    isRecognizing = false;
+                    if (toggleRecognitionButton) {
+                        toggleRecognitionButton.textContent = 'Start Recognition';
+                        // Changed to shades of gray
+                        toggleRecognitionButton.classList.remove('bg-gray-400', 'text-white', 'hover:bg-gray-500');
+                        toggleRecognitionButton.classList.add('bg-gray-200', 'hover:bg-gray-300');
+                    }
+                };
+
+                if (toggleRecognitionButton) {
+                    toggleRecognitionButton.addEventListener('click', () => {
+                        if (isRecognizing) {
+                            recognition.stop();
+                        } else {
+                            if (transcriptTextArea) transcriptTextArea.dataset.userEdited = '';
+                            recognition.start();
+                        }
+                    });
+                }
+
+                if (clearTextButton) {
+                    clearTextButton.addEventListener('click', () => {
+                        if (transcriptTextArea) {
+                            transcriptTextArea.value = '';
+                            transcriptTextArea.dataset.userEdited = '';
+                        }
+                        accumulatedFinalTranscript = '';
+                        hideMessage();
+                        clearLlmOutput(); // Clear the single LLM output box and previous responses
+                    });
+                }
+
+                if (transcriptTextArea) {
+                    transcriptTextArea.addEventListener('input', () => {
+                        transcriptTextArea.dataset.userEdited = 'true';
+                        accumulatedFinalTranscript = transcriptTextArea.value;
+                    });
+                }
+
+
+                // Keyboard shortcut: Listen for Left Shift key press (for starting/stopping recognition)
+                window.addEventListener('keydown', (event) => {
+                    if (event.key === 'Shift' && event.code === 'ShiftLeft' && !isRecognizing && !event.repeat) {
+                        isShiftPressed = true;
+                        if (transcriptTextArea) transcriptTextArea.dataset.userEdited = '';
+                        recognition.start();
+                        event.preventDefault();
+                    }
+                    // Keyboard shortcut: Listen for Right Shift key press (for clearing text)
+                    else if (event.key === 'Shift' && event.code === 'ShiftRight' && !event.repeat) {
+                        if (transcriptTextArea) {
+                            transcriptTextArea.value = '';
+                            transcriptTextArea.dataset.userEdited = '';
+                        }
+                        accumulatedFinalTranscript = '';
+                        hideMessage();
+                        clearLlmOutput(); // Clear the single LLM output box and previous responses
+                        event.preventDefault();
+                    }
+                    // Keyboard shortcut: Listen for Enter key press (for getting Response)
+                    else if (event.key === 'Enter' && !event.repeat) {
+                        if (getResponseButton) { // Ensure button exists
+                            getResponseButton.click(); // Simulate a click on the button
+                        }
+                        event.preventDefault(); // Prevent default Enter key behavior
+                    }
+                });
+
+                // Keyboard shortcut: Listen for Left Shift key release
+                window.addEventListener('keyup', (event) => {
+                    if (event.key === 'Shift' && event.code === 'ShiftLeft' && isRecognizing) {
+                        isShiftPressed = false;
+                        recognition.stop();
+                    }
+                });
+
+            } else {
+                if (toggleRecognitionButton) {
+                    toggleRecognitionButton.disabled = true;
+                    toggleRecognitionButton.classList.remove('bg-gray-200');
+                    toggleRecognitionButton.classList.add('bg-gray-400', 'cursor-not-allowed');
+                }
+                if (clearTextButton) {
+                    clearTextButton.disabled = true;
+                    clearTextButton.classList.remove('bg-gray-200');
+                    clearTextButton.classList.add('bg-gray-400', 'cursor-not-allowed');
+                }
+                if (getResponseButton) {
+                    getResponseButton.disabled = true;
+                    getResponseButton.classList.remove('bg-gray-200');
+                    getResponseButton.classList.add('bg-gray-400', 'cursor-not-allowed');
+                }
+                showMessage('Web Speech API is not supported in this browser. Please use Chrome or Edge.', 'error');
+            }
+
+            // --- Event listener for Get Response button ---
+            if (getResponseButton) {
+                getResponseButton.addEventListener('click', () => {
+                    console.log("Get Response button clicked!");
+                    getSTARLResponseFromLLM(transcriptTextArea ? transcriptTextArea.value : '', uploadedDocumentContent);
+                });
+            }
+
+            // Event listener for collapsible headers (using event delegation)
+            if (previousResponsesContainer) {
+                previousResponsesContainer.addEventListener('click', (event) => {
+                    const header = event.target.closest('.collapsible-header');
+                    if (header) {
+                        const content = header.nextElementSibling; // Get the content div
+                        const arrow = header.querySelector('.arrow');
+                        if (content) {
+                            content.classList.toggle('hidden');
+                            if (arrow) {
+                                arrow.classList.toggle('rotated'); // Toggle rotated class
+                            }
+                        }
+                    }
+                });
+            }
+        }); // End DOMContentLoaded
+    </script>
+</body>
+</html>
