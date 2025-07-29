@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voice to Text Converter with Single LLM Response Box</title>
+    <title>Voice to Text Converter with Metadata</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Marked.js CDN for Markdown parsing -->
@@ -293,7 +293,7 @@
             const transcriptTextArea = document.getElementById('transcript');
             const messageBox = document.getElementById('messageBox');
             const getResponseButton = document.getElementById('getResponseButton');
-            const apiKeyInput = document.getElementById('apiKeyInput'); // New reference for API key input
+            const apiKeyInput = document.getElementById('apiKeyInput');
 
             // Reference for the single LLM response box
             const llmResponseOutput = document.getElementById('llmResponseOutput');
@@ -311,7 +311,7 @@
             console.log('transcriptTextArea:', transcriptTextArea);
             console.log('messageBox:', messageBox);
             console.log('getResponseButton:', getResponseButton);
-            console.log('apiKeyInput:', apiKeyInput); // Log new element
+            console.log('apiKeyInput:', apiKeyInput);
             console.log('llmResponseOutput:', llmResponseOutput);
             console.log('llmResponseContent:', llmResponseContent);
             console.log('previousResponsesContainer:', previousResponsesContainer);
@@ -323,6 +323,7 @@
             let accumulatedFinalTranscript = ''; // Stores the text that has been finalized
             let isShiftPressed = false; // Track if Left Shift key is currently pressed
             let uploadedDocumentContent = ''; // Stores the content of the uploaded document
+            let parsedStories = []; // Stores the parsed stories from the document
 
             // Function to display messages in the message box
             function showMessage(message, type = 'info') {
@@ -344,9 +345,46 @@
 
             // Function to clear the LLM output box and previous responses
             function clearLlmOutput() {
-                if (llmResponseContent) llmResponseContent.innerHTML = 'Your generated answer will appear here.'; // Changed to innerHTML
+                if (llmResponseContent) llmResponseContent.innerHTML = 'Your generated answer will appear here.';
                 if (previousResponsesContainer) previousResponsesContainer.innerHTML = ''; // Clear all previous responses
             }
+
+            // --- Story Bank Parsing ---
+            function parseStoryBank(documentContent) {
+                const stories = documentContent.split('******').map(s => s.trim()).filter(s => s.length > 0);
+                const parsed = [];
+
+                stories.forEach((storyBlock, index) => {
+                    const lines = storyBlock.split('\n').map(line => line.trim());
+                    let tags = [];
+                    let example = '';
+                    let content = [];
+
+                    lines.forEach(line => {
+                        if (line.startsWith('Tag:')) {
+                            tags = line.substring('Tag:'.length).split('|').map(tag => tag.trim()).filter(tag => tag.length > 0);
+                        } else if (line.startsWith('Example:')) {
+                            example = line.substring('Example:'.length).trim();
+                        } else {
+                            content.push(line);
+                        }
+                    });
+
+                    // Join content lines, filter out empty lines that might result from splitting
+                    const storyContent = content.filter(line => line.length > 0).join('\n').trim();
+
+                    if (storyContent) { // Only add if there's actual content
+                        parsed.push({
+                            id: `story-${index}`,
+                            tags: tags,
+                            example: example,
+                            content: storyContent
+                        });
+                    }
+                });
+                return parsed;
+            }
+
 
             // --- Document File Handling ---
             if (documentFileInput && documentStatus) {
@@ -356,17 +394,21 @@
                         const reader = new FileReader();
                         reader.onload = (e) => {
                             uploadedDocumentContent = e.target.result;
-                            documentStatus.textContent = `File "${file.name}" loaded successfully.`;
-                            showMessage('Document loaded.', 'success');
+                            parsedStories = parseStoryBank(uploadedDocumentContent); // Parse the content
+                            documentStatus.textContent = `File "${file.name}" loaded successfully. (${parsedStories.length} stories found)`;
+                            showMessage('Document loaded and parsed.', 'success');
+                            console.log("Parsed Stories:", parsedStories);
                         };
                         reader.onerror = () => {
                             uploadedDocumentContent = '';
+                            parsedStories = []; // Clear parsed stories on error
                             documentStatus.textContent = 'Error reading file.';
                             showMessage('Error reading document file.', 'error');
                         };
                         reader.readAsText(file);
                     } else {
                         uploadedDocumentContent = '';
+                        parsedStories = []; // Clear parsed stories if no file selected
                         documentStatus.textContent = 'No file uploaded.';
                         hideMessage();
                     }
@@ -436,10 +478,10 @@ Summary of experiences:`;
             }
 
             // --- Function to get STARL response from LLM and populate text box ---
-            async function getSTARLResponseFromLLM(interviewQuestion, userExperiencesDocument) {
+            async function getSTARLResponseFromLLM(interviewQuestion, parsedUserExperiences) {
                 console.log("Attempting to get STARL response from LLM...");
                 console.log("Interview Question:", interviewQuestion);
-                console.log("User Experiences Document (first 200 chars):", userExperiencesDocument.substring(0, 200) + "...");
+                console.log("Parsed Experiences (count):", parsedUserExperiences.length);
 
                 // If there's a current response in the main output, move it to previous responses
                 if (llmResponseContent && llmResponseContent.textContent.trim() !== '' && llmResponseContent.textContent !== 'Your generated answer will appear here.') {
@@ -483,7 +525,7 @@ Summary of experiences:`;
 
                 // Clear current LLM output placeholder
                 if (llmResponseContent) {
-                    llmResponseContent.innerHTML = 'Generating response...'; // Changed to innerHTML
+                    llmResponseContent.innerHTML = 'Generating response...';
                 }
 
                 if (!interviewQuestion || interviewQuestion.trim().length === 0) {
@@ -492,9 +534,9 @@ Summary of experiences:`;
                     if (llmResponseContent) llmResponseContent.innerHTML = 'Your generated answer will appear here.'; // Reset placeholder
                     return;
                 }
-                if (!userExperiencesDocument || userExperiencesDocument.trim().length === 0) {
-                    console.error("No user experiences document provided.");
-                    showMessage("Please upload a document with your experiences first.", "error");
+                if (!parsedUserExperiences || parsedUserExperiences.length === 0) {
+                    console.error("No parsed user experiences document provided.");
+                    showMessage("Please upload and parse a document with your experiences first.", "error");
                     if (llmResponseContent) llmResponseContent.innerHTML = 'Your generated answer will appear here.'; // Reset placeholder
                     return;
                 }
@@ -507,15 +549,36 @@ Summary of experiences:`;
                     return null;
                 }
 
+                // Format parsed stories for the LLM prompt
+                let formattedExperiences = parsedUserExperiences.map(story => {
+                    return `---
+Tags: ${story.tags.join(' | ')}
+Example: ${story.example}
+Content:
+${story.content}
+---`;
+                }).join('\n\n');
+
+
                 const prompt = `You are an AI assistant specialized in helping candidates prepare for behavioral interviews. Your task is to provide a comprehensive answer to a given interview question in the STARL (Situation, Task, Action, Result, Learning) format.
-Please ensure each section is clearly labeled with its full name (e.g., "Situation:", "Task:", "Action:", "Result:", "Learning:") followed by the content. The "Learning" section should be precisely two impactful sentences. Ensure your response is in bullet points, clear, actionable, and uses professional language. Focus on leadership and impact.
+You will be provided with an interview question and a list of the user's true experiences, each with 'Tags' and an 'Example' name.
+Your steps are:
+1.  **Identify the most relevant experience** from the provided 'User's Documented Experiences' list that best answers the 'Interview Question'.
+2.  **Generate a comprehensive STARL answer** based *only* on the content of the **chosen relevant experience**. Do not invent details.
+3.  **Ensure the 'Learning' section** is precisely two impactful sentences.
+4.  **Format your entire response** as follows:
+    * Start with the metadata of the chosen story:
+        * \`Tags: [tag1 | tag2 | ...]\`
+        * \`Example: [Example Name]\`
+    * Follow immediately with the STARL answer, with each section clearly labeled and its content in bullet points.
+    * Ensure the overall response is clear, actionable, and uses professional language. Focus on leadership and impact.
 
 Interview Question: "${interviewQuestion}"
 
 User's Documented Experiences:
-${userExperiencesDocument}
+${formattedExperiences}
 
-Your STARL Answer (in STARL format - Situation, Task, Action, Result, Learning):`;
+Your STARL Answer (including metadata and STARL sections):`;
 
                 let chatHistory = [];
                 chatHistory.push({ role: "user", parts: [{ text: prompt }] });
@@ -695,13 +758,6 @@ Your STARL Answer (in STARL format - Situation, Task, Action, Result, Learning):
                         clearLlmOutput(); // Clear the single LLM output box and previous responses
                         event.preventDefault();
                     }
-                    // Keyboard shortcut: Listen for Enter key press (for getting Response)
-                    else if (event.key === 'Enter' && !event.repeat) {
-                        if (getResponseButton) { // Ensure button exists
-                            getResponseButton.click(); // Simulate a click on the button
-                        }
-                        event.preventDefault(); // Prevent default Enter key behavior
-                    }
                 });
 
                 // Keyboard shortcut: Listen for Left Shift key release
@@ -735,7 +791,7 @@ Your STARL Answer (in STARL format - Situation, Task, Action, Result, Learning):
             if (getResponseButton) {
                 getResponseButton.addEventListener('click', () => {
                     console.log("Get Response button clicked!");
-                    getSTARLResponseFromLLM(transcriptTextArea ? transcriptTextArea.value : '', uploadedDocumentContent);
+                    getSTARLResponseFromLLM(transcriptTextArea ? transcriptTextArea.value : '', parsedStories); // Pass parsedStories
                 });
             }
 
